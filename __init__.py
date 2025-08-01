@@ -58,6 +58,83 @@ except Exception as e:
 # Web directory
 WEB_DIRECTORY = "./web"
 
+# ──────────────────────────── API ROUTES FOR CANVAS SYNC ─────────────────────────
+try:
+    from server import PromptServer
+    from aiohttp import web
+    import time
+    
+    # Import the data access functions
+    from pose_align_utils import get_transform_data, _transform_data_cache
+    
+    @PromptServer.instance.routes.get("/AInseven/pose_align_data/{node_id}")
+    async def api_get_pose_align_data(request):
+        """API endpoint to get transformation data for canvas"""
+        try:
+            node_id = request.match_info.get('node_id')
+            data = get_transform_data(node_id)
+            
+            if data is None:
+                return web.json_response({
+                    'error': 'No data found for node',
+                    'timestamp': time.time(),
+                    'matrices': {'A': None, 'B': None},
+                    'offsetCorrections': {'A': {'x': 0, 'y': 0}, 'B': {'x': 0, 'y': 0}},
+                    'singlePoseMode': False
+                }, status=200)
+            
+            return web.json_response(data)
+        except Exception as e:
+            print(f"[PoseAlign API] Error: {e}")
+            return web.json_response({
+                'error': str(e),
+                'timestamp': time.time(),
+                'matrices': {'A': None, 'B': None},
+                'offsetCorrections': {'A': {'x': 0, 'y': 0}, 'B': {'x': 0, 'y': 0}},
+                'singlePoseMode': False
+            }, status=200)
+    
+    @PromptServer.instance.routes.get("/AInseven/debug_node_ids")
+    async def api_debug_node_ids(request):
+        """Debug endpoint to see all stored node IDs and their data"""
+        try:
+            debug_info = {
+                'stored_node_ids': list(_transform_data_cache.keys()),
+                'total_stored': len(_transform_data_cache),
+                'cache_contents': {}
+            }
+
+            # Include summary data for debugging
+            for node_id, data in _transform_data_cache.items():
+                debug_info['cache_contents'][node_id] = {
+                    'timestamp': data.get('timestamp'),
+                    'singlePoseMode': data.get('singlePoseMode'),
+                    'matrices_available': {
+                        'A': data.get('matrices', {}).get('A') is not None,
+                        'B': data.get('matrices', {}).get('B') is not None
+                    },
+                    'inputDimensions': data.get('inputDimensions')
+                }
+
+            return web.json_response(debug_info)
+
+        except Exception as e:
+            print(f"[PoseAlign Debug API] Error: {e}")
+            return web.json_response({
+                'error': str(e),
+                'stored_node_ids': [],
+                'total_stored': 0
+            })
+
+    print("[PoseAlign] API routes registered successfully")
+
+except ImportError as e:
+    print(f"[PoseAlign] Could not import PromptServer: {e}")
+    print("[PoseAlign] Canvas will fall back to widget-only mode")
+except Exception as e:
+    print(f"[PoseAlign] Error registering API routes: {e}")
+    print("[PoseAlign] Canvas will fall back to widget-only mode")
+
 print(f"[ComfyUI_PoseAlign] Final registered nodes: {list(NODE_CLASS_MAPPINGS.keys())}")
 print("[ComfyUI_PoseAlign] Loading complete!")
 
