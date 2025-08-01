@@ -50,14 +50,6 @@ app.registerExtension({
 			canvas.style.display = "block";
 			canvas.style.cursor = "crosshair";
 			canvas.style.borderRadius = "4px";
-			
-			// CRITICAL FIX: Make sure canvas fits within node bounds
-			canvas.style.width = `${CANVAS_SIZE}px`;
-			canvas.style.height = `${CANVAS_SIZE}px`;
-			canvas.style.maxWidth = `${CANVAS_SIZE}px`;
-			canvas.style.maxHeight = `${CANVAS_SIZE}px`;
-			canvas.style.minWidth = `${CANVAS_SIZE}px`;
-			canvas.style.minHeight = `${CANVAS_SIZE}px`;
 			canvas.style.objectFit = "contain";
 			canvas.style.flexShrink = "0";
 			canvas.style.margin = "0 auto"; // Center the canvas
