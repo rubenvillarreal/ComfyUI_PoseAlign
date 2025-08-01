@@ -31,19 +31,20 @@ app.registerExtension({
 			const node = this;
 			console.log("[PoseAlign Widget] Node created:", node);
 
-			// FIXED: Set initial node size to accommodate canvas
-			const CANVAS_SIZE = 512;
-			const PADDING = 20; // Extra space for widgets
-			
-			// Set node size to properly contain the canvas with minimal UI space
-			node.size = [CANVAS_SIZE + PADDING, CANVAS_SIZE + 30]; // Only 30px for tiny toggle
-			
-			// Create the main canvas element
+			// Create the main canvas element first to get aspect ratio
 			const canvas = document.createElement("canvas");
 			
-			// Set up canvas properties - FIXED sizing
-			canvas.width = CANVAS_SIZE;
-			canvas.height = CANVAS_SIZE;
+			// Default size until we get reference image dimensions
+			let CANVAS_WIDTH = 512;
+			let CANVAS_HEIGHT = 512;
+			const PADDING = 20; // Extra space for widgets
+			
+			// Set up canvas properties - will be updated when reference image loads
+			canvas.width = CANVAS_WIDTH;
+			canvas.height = CANVAS_HEIGHT;
+			
+			// Set initial node size (will be updated when canvas size changes)
+			node.size = [CANVAS_WIDTH + PADDING, CANVAS_HEIGHT + 30]; // 30px for tiny toggle
 			canvas.style.border = "2px solid #555";
 			canvas.style.backgroundColor = "#1a1a1a";
 			canvas.style.display = "block";
@@ -64,8 +65,37 @@ app.registerExtension({
 
 			const ctx = canvas.getContext("2d");
 
+			// Canvas size update callback
+			const updateCanvasSize = (width, height) => {
+				console.log(`[PoseAlign Widget] Updating canvas size to ${width}x${height}`);
+				
+				// Maintain aspect ratio with max size constraints
+				const MAX_SIZE = 512;
+				const aspectRatio = width / height;
+				
+				let newWidth, newHeight;
+				if (aspectRatio > 1) {
+					// Wider than tall
+					newWidth = Math.min(width, MAX_SIZE);
+					newHeight = newWidth / aspectRatio;
+				} else {
+					// Taller than wide
+					newHeight = Math.min(height, MAX_SIZE);
+					newWidth = newHeight * aspectRatio;
+				}
+				
+				// Update canvas size
+				canvas.width = Math.round(newWidth);
+				canvas.height = Math.round(newHeight);
+				
+				// Update node size to accommodate new canvas
+				node.size = [canvas.width + PADDING, canvas.height + 30];
+				
+				console.log(`[PoseAlign Widget] Canvas resized to ${canvas.width}x${canvas.height}, node resized to ${node.size}`);
+			};
+
 			// Initialize managers
-			const imageManager = new ImageManager(node);
+			const imageManager = new ImageManager(node, updateCanvasSize);
 			const transformManager = new TransformManager(node);
 			const renderer = new CanvasRenderer(canvas, ctx, imageManager, transformManager);
 			const interactionHandler = new InteractionHandler(canvas, transformManager, renderer);

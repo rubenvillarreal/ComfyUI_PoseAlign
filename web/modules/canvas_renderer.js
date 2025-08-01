@@ -302,7 +302,7 @@ export class CanvasRenderer {
 				console.log("Transform data updated from Python node");
 			}
 			
-			const images = await this.imageManager.getImagesFromNode();
+			const images = await this.imageManager.getImagesFromNode(this.transformManager);
 			const hasValidImages = !!(images.ref || images.A || images.B);
 			const coordSys = this.calculateCoordinateSystem();
 			const { actualCanvasWidth, actualCanvasHeight } = coordSys;
@@ -338,7 +338,12 @@ export class CanvasRenderer {
 			// Draw layers in correct order (back to front)
 			this.drawGrid(coordSys);
 			this.drawPoseLayer(images.ref, "REF", "#666", false, coordSys, hasValidImages);
-			this.drawPoseLayer(images.B, "B", "#4a9eff", this.state.which === "B", coordSys, hasValidImages);
+			
+			// Only draw pose B if it exists (not in single pose mode)
+			if (images.B) {
+				this.drawPoseLayer(images.B, "B", "#4a9eff", this.state.which === "B", coordSys, hasValidImages);
+			}
+			
 			this.drawPoseLayer(images.A, "A", "#ff4a4a", this.state.which === "A", coordSys, hasValidImages);
 			this.drawUIOverlay(coordSys, hasValidImages);
 			

@@ -1,7 +1,7 @@
 /* modules/image_manager.js - Handles image loading and processing */
 
 export class ImageManager {
-	constructor(node) {
+	constructor(node, canvasSizeCallback = null) {
 		this.node = node;
 		this.loadedImages = {
 			ref: null,
@@ -10,6 +10,7 @@ export class ImageManager {
 		};
 		this.previewImage = null;
 		this.refImageSize = { width: 512, height: 512 }; // Default size
+		this.canvasSizeCallback = canvasSizeCallback; // Callback to update canvas size
 	}
 
 	// Get the reference image size (used for coordinate system)
@@ -18,21 +19,30 @@ export class ImageManager {
 	}
 
 	// Extract individual poses from combined preview image
-	async extractPosesFromPreview(previewImage) {
+	async extractPosesFromPreview(previewImage, singlePoseMode = false) {
 		if (!previewImage) return { ref: null, A: null, B: null };
 		
-		// The preview image has all three poses stacked horizontally
-		const width = previewImage.width / 3;
+		// In single pose mode, preview has 2 poses (ref, A), otherwise 3 (ref, A, B)
+		const numPoses = singlePoseMode ? 2 : 3;
+		const width = previewImage.width / numPoses;
 		const height = previewImage.height;
+		
+		console.log(`[ImageManager] Extracting ${numPoses} poses from preview (${previewImage.width}x${previewImage.height})`);
+		console.log(`[ImageManager] Individual pose size: ${width}x${height}`);
 		
 		// Update reference image size for coordinate system
 		this.refImageSize = { width, height };
 		
+		// Notify canvas to update its size
+		if (this.canvasSizeCallback) {
+			this.canvasSizeCallback(width, height);
+		}
+		
 		// Create canvases for each pose
 		const poses = {};
-		const names = ['ref', 'A', 'B'];
+		const names = singlePoseMode ? ['ref', 'A'] : ['ref', 'A', 'B'];
 		
-		for (let i = 0; i < 3; i++) {
+		for (let i = 0; i < numPoses; i++) {
 			const tempCanvas = document.createElement('canvas');
 			tempCanvas.width = width;
 			tempCanvas.height = height;
@@ -48,11 +58,27 @@ export class ImageManager {
 			poses[names[i]] = await createImageBitmap(tempCanvas);
 		}
 		
+		// In single pose mode, explicitly set B to null
+		if (singlePoseMode) {
+			poses['B'] = null;
+		}
+		
 		return poses;
 	}
 
+	// Check if we're in single pose mode by looking for transform data
+	async getSinglePoseMode(transformManager) {
+		try {
+			const transformData = await transformManager.getTransformCache();
+			return transformData.singlePoseMode === true;
+		} catch (error) {
+			console.log("[ImageManager] Could not get transform data, assuming dual pose mode");
+			return false;
+		}
+	}
+
 	// Get images from node's execution results
-	async getImagesFromNode() {
+	async getImagesFromNode(transformManager = null) {
 		try {
 			// Check if we have a preview image from the node's UI output
 			if (this.node.imgs && this.node.imgs.length > 0 && this.node.imgs[0].src) {
@@ -68,8 +94,12 @@ export class ImageManager {
 				
 				this.previewImage = img;
 				
+				// Check if we're in single pose mode
+				const singlePoseMode = transformManager ? await this.getSinglePoseMode(transformManager) : false;
+				console.log(`[ImageManager] Single pose mode: ${singlePoseMode}`);
+				
 				// Extract individual poses from the combined preview
-				const poses = await this.extractPosesFromPreview(img);
+				const poses = await this.extractPosesFromPreview(img, singlePoseMode);
 				console.log("Extracted poses from preview image, ref size:", this.refImageSize);
 				
 				// Update loaded images cache
