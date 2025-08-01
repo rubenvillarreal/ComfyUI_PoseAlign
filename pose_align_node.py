@@ -14,7 +14,7 @@ from aiohttp import web
 
 # Import all utilities from our utils module
 try:
-    from .pose_align_utils import (
+    from pose_align_utils import (
         # Constants
         NUM_BODY_JOINTS, TORSO, ROBUST_JOINTS, STABLE_SEGMENTS, BODY_25_PAIRS, OPENPOSE_COLOUR_MAP,
         
@@ -203,7 +203,7 @@ class PoseAlignTwoToOne(PreviewImage):
         store_transform_data(node_id, data)
 
         # VERIFY what was actually stored
-        from .pose_align_utils import get_transform_data
+        from pose_align_utils import get_transform_data
         stored_data = get_transform_data(node_id)
         if stored_data:
             print(f"[PoseAlign] Verification - stored inputDimensions: {stored_data.get('inputDimensions')}")
