@@ -116,6 +116,11 @@ export class InteractionHandler {
 			this.transformManager.setProperty(`ty_${pose}`, currentTy + scaledDy);
 			
 			console.log(`[Interaction] Move ${pose}: tx=${(currentTx + scaledDx).toFixed(1)}, ty=${(currentTy + scaledDy).toFixed(1)}`);
+			console.log(`[Interaction] Manual mode active: ${this.transformManager.shouldUseManualMode()}`);
+			
+			// Check if manual widget was updated
+			const manualWidget = this.transformManager.node.widgets?.find(w => w.name === 'manual');
+			console.log(`[Interaction] Manual widget value: ${manualWidget?.value}`);
 			
 			// CRITICAL: Immediate redraw with forced manual mode
 			this.renderer.draw();

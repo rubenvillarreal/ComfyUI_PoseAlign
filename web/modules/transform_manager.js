@@ -19,6 +19,9 @@ export class TransformManager {
 	setManualModeOverride(enabled) {
 		console.log(`[TransformManager] Manual mode override: ${this.forceManualMode} → ${enabled}`);
 		this.forceManualMode = enabled;
+		
+		// CRITICAL: Also update the manual widget to match the override
+		this.setProperty('manual', enabled);
 	}
 
 	// Check if we should use manual mode
