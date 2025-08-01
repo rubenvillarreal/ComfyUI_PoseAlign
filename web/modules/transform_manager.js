@@ -50,6 +50,28 @@ export class TransformManager {
 				widget.callback(value);
 			}
 		}
+		
+		// CRITICAL: Mark node as needing re-execution
+		this.triggerNodeUpdate();
+	}
+	
+	// Trigger node re-execution when transforms change
+	triggerNodeUpdate() {
+		try {
+			// Mark the node's graph as dirty to trigger re-execution
+			if (this.node.graph) {
+				this.node.graph.change();
+			}
+			
+			// Also try to trigger the node directly
+			if (this.node.setDirtyCanvas) {
+				this.node.setDirtyCanvas(true, true);
+			}
+			
+			console.log("[TransformManager] Triggered node update");
+		} catch (error) {
+			console.log("[TransformManager] Could not trigger node update:", error);
+		}
 	}
 
 	// Get a property value safely with default
