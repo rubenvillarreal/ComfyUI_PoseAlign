@@ -305,37 +305,70 @@ class PoseAlignTwoToOne(PreviewImage):
                 # Reference keypoints
                 ref_people_raw = kps_from_pose_json(ref_pose_json)
                 
-                # Single pose mode - just align A to first reference pose
+                # Single pose mode - align A to one of the reference poses
                 if poseB_img is None:
-                    if len(ref_people_raw) >= 1:
-                        # Get first reference person
+                    # Extract reference poses (can be 1 or 2) but don't make them manipulatable
+                    if len(ref_people_raw) >= 2:
+                        # Two reference poses available - extract both as targets
+                        m1, m2 = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
+                        img_people = [extract_kps_from_mask(ref_np, m1), extract_kps_from_mask(ref_np, m2)]
+                        kR1 = correct_json_offset(ref_people_raw[0], img_people[0])
+                        kR2 = correct_json_offset(ref_people_raw[1], img_people[1])
+                    elif len(ref_people_raw) >= 1:
+                        # One reference pose available
                         masks = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
                         m1 = masks[0] if isinstance(masks, tuple) else masks
                         img_person = extract_kps_from_mask(ref_np, m1)
                         kR1 = correct_json_offset(ref_people_raw[0], img_person)
+                        kR2 = None  # Only one reference
                     else:
                         # Extract from mask if no JSON
                         masks = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
-                        m1 = masks[0] if isinstance(masks, tuple) else masks
-                        kR1 = extract_kps_from_mask(ref_np, m1)
+                        if isinstance(masks, tuple) and len(masks) >= 2:
+                            m1, m2 = masks[0], masks[1]
+                            kR1 = extract_kps_from_mask(ref_np, m1)
+                            kR2 = extract_kps_from_mask(ref_np, m2)
+                        else:
+                            m1 = masks[0] if isinstance(masks, tuple) else masks
+                            kR1 = extract_kps_from_mask(ref_np, m1)
+                            kR2 = None
                     
                     # Get pose A keypoints
                     kA_json = self._get_kps(A_np, poseA_json, 0)
                     kA_img = extract_kps_from_mask(A_np)
                     
-                    # Calculate offset correction for A
+                    # Calculate offset correction for A only
                     offset_A = estimate_translation(kA_json, kA_img)
                     self._offset_corrections = {
                         'A': {'x': float(offset_A[0]), 'y': float(offset_A[1])},
-                        'B': {'x': 0.0, 'y': 0.0}  # No B pose
+                        'B': {'x': 0.0, 'y': 0.0}  # No B pose to correct
                     }
                     
                     kA = correct_json_offset(kA_json, kA_img)
                     
-                    # Fit A to first reference
-                    sA, RA, tA, _ = fit_pair(kA, kR1)
+                    # Choose which reference pose to align to based on assignment or best fit
+                    if kR2 is not None:
+                        # Two reference poses - choose based on assignment or best error
+                        sA1, RA1, tA1, eA1 = fit_pair(kA, kR1)
+                        sA2, RA2, tA2, eA2 = fit_pair(kA, kR2)
+                        
+                        if assignment == "A_to_first":
+                            sA, RA, tA = sA1, RA1, tA1
+                        elif assignment == "A_to_second":
+                            sA, RA, tA = sA2, RA2, tA2
+                        else:  # auto - choose best fit
+                            if eA1 <= eA2:
+                                sA, RA, tA = sA1, RA1, tA1
+                            else:
+                                sA, RA, tA = sA2, RA2, tA2
+                    else:
+                        # Only one reference pose
+                        sA, RA, tA, _ = fit_pair(kA, kR1)
+                    
+                    # Create transformation for A only
                     MA = np.hstack([sA * RA, tA[:, None]]).astype(np.float32)
-                    MB = np.eye(2, 3, dtype=np.float32)  # Identity for B
+                    # B has no transformation - it doesn't exist
+                    MB = np.eye(2, 3, dtype=np.float32)
                     
                 else:
                     # Two pose mode - original logic
