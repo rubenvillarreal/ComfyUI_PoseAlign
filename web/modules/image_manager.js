@@ -93,9 +93,28 @@ export class ImageManager {
 	async getSinglePoseMode(transformManager) {
 		try {
 			const transformData = await transformManager.getTransformCache();
-			return transformData.singlePoseMode === true;
+			console.log("[ImageManager] Full transform data:", transformData);
+			console.log("[ImageManager] singlePoseMode flag:", transformData.singlePoseMode);
+			console.log("[ImageManager] inputDimensions:", transformData.inputDimensions);
+			console.log("[ImageManager] matrices:", transformData.matrices);
+			
+			// Check multiple ways to detect single pose mode
+			const hasSinglePoseFlag = transformData.singlePoseMode === true;
+			const noBDimensions = !transformData.inputDimensions?.B;
+			const noBMatrix = !transformData.matrices?.B;
+			
+			console.log("[ImageManager] Detection methods:");
+			console.log("  - singlePoseMode flag:", hasSinglePoseFlag);
+			console.log("  - No B dimensions:", noBDimensions);  
+			console.log("  - No B matrix:", noBMatrix);
+			
+			// Use any of these methods to detect single pose mode
+			const singleMode = hasSinglePoseFlag || noBDimensions || noBMatrix;
+			console.log("[ImageManager] Final single pose mode decision:", singleMode);
+			
+			return singleMode;
 		} catch (error) {
-			console.log("[ImageManager] Could not get transform data, assuming dual pose mode");
+			console.log("[ImageManager] Could not get transform data, assuming dual pose mode:", error);
 			return false;
 		}
 	}
@@ -120,6 +139,7 @@ export class ImageManager {
 				// Check if we're in single pose mode
 				const singlePoseMode = transformManager ? await this.getSinglePoseMode(transformManager) : false;
 				console.log(`[ImageManager] Single pose mode: ${singlePoseMode}`);
+				console.log(`[ImageManager] Preview image dimensions: ${img.width}x${img.height}`);
 				
 				// Extract individual poses from the combined preview
 				const poses = await this.extractPosesFromPreview(img, singlePoseMode);
