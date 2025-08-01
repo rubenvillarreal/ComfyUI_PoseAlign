@@ -40,27 +40,50 @@ export class ImageManager {
 		
 		// Create canvases for each pose
 		const poses = {};
-		const names = singlePoseMode ? ['ref', 'A'] : ['ref', 'A', 'B'];
 		
-		for (let i = 0; i < numPoses; i++) {
-			const tempCanvas = document.createElement('canvas');
-			tempCanvas.width = width;
-			tempCanvas.height = height;
-			const tempCtx = tempCanvas.getContext('2d');
-			
-			// Draw the portion of the preview image
-			tempCtx.drawImage(previewImage, 
-				i * width, 0, width, height,  // source
-				0, 0, width, height            // destination
-			);
-			
-			// Convert to image bitmap for use
-			poses[names[i]] = await createImageBitmap(tempCanvas);
-		}
-		
-		// In single pose mode, explicitly set B to null
 		if (singlePoseMode) {
+			// Single pose mode: preview has [ref, poseA]
+			console.log(`[ImageManager] Single pose mode - extracting ref and poseA`);
+			
+			// Extract reference image (position 0)
+			const refCanvas = document.createElement('canvas');
+			refCanvas.width = width;
+			refCanvas.height = height;
+			const refCtx = refCanvas.getContext('2d');
+			refCtx.drawImage(previewImage, 0, 0, width, height, 0, 0, width, height);
+			poses['ref'] = await createImageBitmap(refCanvas);
+			
+			// Extract poseA image (position 1) 
+			const aCanvas = document.createElement('canvas');
+			aCanvas.width = width;
+			aCanvas.height = height;
+			const aCtx = aCanvas.getContext('2d');
+			aCtx.drawImage(previewImage, width, 0, width, height, 0, 0, width, height);
+			poses['A'] = await createImageBitmap(aCanvas);
+			
+			// No pose B in single pose mode
 			poses['B'] = null;
+			
+		} else {
+			// Dual pose mode: preview has [ref, poseA, poseB]
+			console.log(`[ImageManager] Dual pose mode - extracting ref, poseA, and poseB`);
+			
+			const names = ['ref', 'A', 'B'];
+			for (let i = 0; i < 3; i++) {
+				const tempCanvas = document.createElement('canvas');
+				tempCanvas.width = width;
+				tempCanvas.height = height;
+				const tempCtx = tempCanvas.getContext('2d');
+				
+				// Draw the portion of the preview image
+				tempCtx.drawImage(previewImage, 
+					i * width, 0, width, height,  // source
+					0, 0, width, height            // destination
+				);
+				
+				// Convert to image bitmap for use
+				poses[names[i]] = await createImageBitmap(tempCanvas);
+			}
 		}
 		
 		return poses;
