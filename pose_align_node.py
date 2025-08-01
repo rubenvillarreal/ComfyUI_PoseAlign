@@ -81,8 +81,6 @@ class PoseAlignTwoToOne(PreviewImage):
                 "ref_pose_json": ("POSE_KEYPOINT",),
                 "poseA_img": ("IMAGE",),
                 "poseA_json": ("POSE_KEYPOINT",),
-                "poseB_img": ("IMAGE",),
-                "poseB_json": ("POSE_KEYPOINT",),
                 "assignment": (["auto", "A_to_first", "A_to_second"],),
                 "manual": ("BOOLEAN", {"default": False}),
                 "reset": ("BOOLEAN", {"default": False}),
@@ -98,6 +96,8 @@ class PoseAlignTwoToOne(PreviewImage):
                 "ty_B": ("INT", {"default": 0, "min": -2048, "max": 2048}),
             },
             "optional": {
+                "poseB_img": ("IMAGE",),
+                "poseB_json": ("POSE_KEYPOINT",),
                 "debug": ("BOOLEAN", {"default": False})
             },
             "hidden": {
@@ -116,16 +116,21 @@ class PoseAlignTwoToOne(PreviewImage):
         people = kps_from_pose_json(js)
         return people[idx] if people and idx < len(people) else extract_kps_from_mask(img)
 
-    def _save_preview_images(self, ref_pose_img, poseA_img, poseB_img, prompt=None, extra_pnginfo=None):
+    def _save_preview_images(self, ref_pose_img, poseA_img, poseB_img=None, prompt=None, extra_pnginfo=None):
         """Save input images using ComfyUI's PreviewImage mechanism"""
         # Get tensors from the first batch
         ref_tensor = ref_pose_img[0:1]
         A_tensor = poseA_img[0:1]
-        B_tensor = poseB_img[0:1]
-
-        # Find the maximum height and width
-        max_height = max(ref_tensor.shape[1], A_tensor.shape[1], B_tensor.shape[1])
-        max_width = max(ref_tensor.shape[2], A_tensor.shape[2], B_tensor.shape[2])
+        
+        if poseB_img is not None:
+            B_tensor = poseB_img[0:1]
+            # Find the maximum height and width
+            max_height = max(ref_tensor.shape[1], A_tensor.shape[1], B_tensor.shape[1])
+            max_width = max(ref_tensor.shape[2], A_tensor.shape[2], B_tensor.shape[2])
+        else:
+            # Only ref and A
+            max_height = max(ref_tensor.shape[1], A_tensor.shape[1])
+            max_width = max(ref_tensor.shape[2], A_tensor.shape[2])
 
         # Resize all images to the same dimensions
         import torch.nn.functional as F
@@ -141,10 +146,14 @@ class PoseAlignTwoToOne(PreviewImage):
         # Resize all images to the maximum dimensions
         ref_resized = resize_tensor(ref_tensor, max_height, max_width)
         A_resized = resize_tensor(A_tensor, max_height, max_width)
-        B_resized = resize_tensor(B_tensor, max_height, max_width)
-
-        # Stack images horizontally (along width dimension)
-        combined = torch.cat([ref_resized, A_resized, B_resized], dim=2)  # dim=2 is width in (B,H,W,C)
+        
+        if poseB_img is not None:
+            B_resized = resize_tensor(B_tensor, max_height, max_width)
+            # Stack images horizontally (along width dimension)
+            combined = torch.cat([ref_resized, A_resized, B_resized], dim=2)  # dim=2 is width in (B,H,W,C)
+        else:
+            # Only ref and A
+            combined = torch.cat([ref_resized, A_resized], dim=2)
 
         # Use PreviewImage's save_images method
         return self.save_images(combined, filename_prefix="pose_align_preview", prompt=prompt, extra_pnginfo=extra_pnginfo)
@@ -215,7 +224,8 @@ class PoseAlignTwoToOne(PreviewImage):
             print(f"[PoseAlign] Full stored data: {stored_data}")
 
     # ───────────────────────── Main Alignment Function ──────────────────────────
-    def align(self, ref_pose_img, ref_pose_json, poseA_img, poseA_json, poseB_img, poseB_json,
+    def align(self, ref_pose_img, ref_pose_json, poseA_img, poseA_json,
+              poseB_img=None, poseB_json=None,
               assignment="auto", manual=False, reset=False, debug=False,
               angle_deg_A=0.0, scale_A=1.0, tx_A=0, ty_A=0,
               angle_deg_B=0.0, scale_B=1.0, tx_B=0, ty_B=0,
@@ -232,19 +242,30 @@ class PoseAlignTwoToOne(PreviewImage):
         # SIMPLE: Capture original input dimensions before any processing
         ref_np = torch_to_u8(ref_pose_img[0:1])
         A_np = torch_to_u8(poseA_img[0:1])
-        B_np = torch_to_u8(poseB_img[0:1])
         
-        self._input_dimensions = {
-            'ref': (ref_np.shape[1], ref_np.shape[0]),  # (width, height)
-            'A': (A_np.shape[1], A_np.shape[0]),
-            'B': (B_np.shape[1], B_np.shape[0])
-        }
+        if poseB_img is not None:
+            B_np = torch_to_u8(poseB_img[0:1])
+            self._input_dimensions = {
+                'ref': (ref_np.shape[1], ref_np.shape[0]),  # (width, height)
+                'A': (A_np.shape[1], A_np.shape[0]),
+                'B': (B_np.shape[1], B_np.shape[0])
+            }
+        else:
+            B_np = None
+            self._input_dimensions = {
+                'ref': (ref_np.shape[1], ref_np.shape[0]),  # (width, height)
+                'A': (A_np.shape[1], A_np.shape[0]),
+                'B': (0, 0)  # No B pose
+            }
         
         # ENHANCED LOGGING: Show what dimensions we captured
         print(f"[PoseAlign] ===== CAPTURED INPUT DIMENSIONS =====")
         print(f"[PoseAlign] ref_np.shape: {ref_np.shape} -> stored as: {self._input_dimensions['ref']}")
         print(f"[PoseAlign] A_np.shape: {A_np.shape} -> stored as: {self._input_dimensions['A']}")
-        print(f"[PoseAlign] B_np.shape: {B_np.shape} -> stored as: {self._input_dimensions['B']}")
+        if B_np is not None:
+            print(f"[PoseAlign] B_np.shape: {B_np.shape} -> stored as: {self._input_dimensions['B']}")
+        else:
+            print(f"[PoseAlign] B_np: None (single pose mode)")
         print(f"[PoseAlign] ==========================================")
         
         if debug:
@@ -265,7 +286,10 @@ class PoseAlignTwoToOne(PreviewImage):
         # Rest of the alignment logic stays the same...
         if manual:
             MA = _build_affine(scale_A, angle_deg_A, tx_A, ty_A, cx, cy).astype(np.float32)
-            MB = _build_affine(scale_B, angle_deg_B, tx_B, ty_B, cx, cy).astype(np.float32)
+            if poseB_img is not None:
+                MB = _build_affine(scale_B, angle_deg_B, tx_B, ty_B, cx, cy).astype(np.float32)
+            else:
+                MB = np.eye(2, 3, dtype=np.float32)  # Identity matrix for no transformation
             
             self.properties.update({
                 'scale_A': scale_A, 'angle_deg_A': angle_deg_A, 'tx_A': tx_A, 'ty_A': ty_A,
@@ -275,59 +299,92 @@ class PoseAlignTwoToOne(PreviewImage):
             self._MA, self._MB = MA, MB
             
         else:
-            # Automatic mode logic (unchanged, just keeping the key parts)
-            need_fit = reset or self._MA is None or self._MB is None
+            # Automatic mode logic
+            need_fit = reset or self._MA is None or (self._MB is None and poseB_img is not None)
             if need_fit:
-                # All the automatic alignment logic stays the same...
-                # (I'm abbreviating this since it's unchanged)
-                
                 # Reference keypoints
                 ref_people_raw = kps_from_pose_json(ref_pose_json)
-                if len(ref_people_raw) >= 2:
-                    m1, m2 = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
-                    img_people = [extract_kps_from_mask(ref_np, m1), extract_kps_from_mask(ref_np, m2)]
-                    kR1 = correct_json_offset(ref_people_raw[0], img_people[0])
-                    kR2 = correct_json_offset(ref_people_raw[1], img_people[1])
-                else:
-                    m1, m2 = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
-                    kR1, kR2 = extract_kps_from_mask(ref_np, m1), extract_kps_from_mask(ref_np, m2)
-
-                # Pose A & B keypoints
-                kA_json = self._get_kps(A_np, poseA_json, 0)
-                kB_json = self._get_kps(B_np, poseB_json, 0)
-                kA_img = extract_kps_from_mask(A_np)
-                kB_img = extract_kps_from_mask(B_np)
                 
-                # Calculate offset corrections
-                offset_A = estimate_translation(kA_json, kA_img)
-                offset_B = estimate_translation(kB_json, kB_img)
-                self._offset_corrections = {
-                    'A': {'x': float(offset_A[0]), 'y': float(offset_A[1])},
-                    'B': {'x': float(offset_B[0]), 'y': float(offset_B[1])}
-                }
-                
-                kA = correct_json_offset(kA_json, kA_img)
-                kB = correct_json_offset(kB_json, kB_img)
-
-                # Similarity fits
-                sA1, RA1, tA1, eA1 = fit_pair(kA, kR1)
-                sB2, RB2, tB2, eB2 = fit_pair(kB, kR2)
-                sA2, RA2, tA2, eA2 = fit_pair(kA, kR2)
-                sB1, RB1, tB1, eB1 = fit_pair(kB, kR1)
-
-                pick = 0 if assignment == "A_to_first" else \
-                       1 if assignment == "A_to_second" else \
-                       (0 if eA1 + eB2 <= eA2 + eB1 else 1)
-
-                if pick == 0:
-                    sA, RA, tA = sA1, RA1, tA1
-                    sB, RB, tB = sB2, RB2, tB2
+                # Single pose mode - just align A to first reference pose
+                if poseB_img is None:
+                    if len(ref_people_raw) >= 1:
+                        # Get first reference person
+                        masks = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
+                        m1 = masks[0] if isinstance(masks, tuple) else masks
+                        img_person = extract_kps_from_mask(ref_np, m1)
+                        kR1 = correct_json_offset(ref_people_raw[0], img_person)
+                    else:
+                        # Extract from mask if no JSON
+                        masks = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
+                        m1 = masks[0] if isinstance(masks, tuple) else masks
+                        kR1 = extract_kps_from_mask(ref_np, m1)
+                    
+                    # Get pose A keypoints
+                    kA_json = self._get_kps(A_np, poseA_json, 0)
+                    kA_img = extract_kps_from_mask(A_np)
+                    
+                    # Calculate offset correction for A
+                    offset_A = estimate_translation(kA_json, kA_img)
+                    self._offset_corrections = {
+                        'A': {'x': float(offset_A[0]), 'y': float(offset_A[1])},
+                        'B': {'x': 0.0, 'y': 0.0}  # No B pose
+                    }
+                    
+                    kA = correct_json_offset(kA_json, kA_img)
+                    
+                    # Fit A to first reference
+                    sA, RA, tA, _ = fit_pair(kA, kR1)
+                    MA = np.hstack([sA * RA, tA[:, None]]).astype(np.float32)
+                    MB = np.eye(2, 3, dtype=np.float32)  # Identity for B
+                    
                 else:
-                    sA, RA, tA = sA2, RA2, tA2
-                    sB, RB, tB = sB1, RB1, tB1
+                    # Two pose mode - original logic
+                    if len(ref_people_raw) >= 2:
+                        m1, m2 = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
+                        img_people = [extract_kps_from_mask(ref_np, m1), extract_kps_from_mask(ref_np, m2)]
+                        kR1 = correct_json_offset(ref_people_raw[0], img_people[0])
+                        kR2 = correct_json_offset(ref_people_raw[1], img_people[1])
+                    else:
+                        m1, m2 = two_largest(cv2.cvtColor(ref_np, cv2.COLOR_BGR2GRAY) > 2)
+                        kR1, kR2 = extract_kps_from_mask(ref_np, m1), extract_kps_from_mask(ref_np, m2)
 
-                MA = np.hstack([sA * RA, tA[:, None]]).astype(np.float32)
-                MB = np.hstack([sB * RB, tB[:, None]]).astype(np.float32)
+                    # Pose A & B keypoints
+                    kA_json = self._get_kps(A_np, poseA_json, 0)
+                    kB_json = self._get_kps(B_np, poseB_json, 0)
+                    kA_img = extract_kps_from_mask(A_np)
+                    kB_img = extract_kps_from_mask(B_np)
+                    
+                    # Calculate offset corrections
+                    offset_A = estimate_translation(kA_json, kA_img)
+                    offset_B = estimate_translation(kB_json, kB_img)
+                    self._offset_corrections = {
+                        'A': {'x': float(offset_A[0]), 'y': float(offset_A[1])},
+                        'B': {'x': float(offset_B[0]), 'y': float(offset_B[1])}
+                    }
+                    
+                    kA = correct_json_offset(kA_json, kA_img)
+                    kB = correct_json_offset(kB_json, kB_img)
+
+                    # Similarity fits
+                    sA1, RA1, tA1, eA1 = fit_pair(kA, kR1)
+                    sB2, RB2, tB2, eB2 = fit_pair(kB, kR2)
+                    sA2, RA2, tA2, eA2 = fit_pair(kA, kR2)
+                    sB1, RB1, tB1, eB1 = fit_pair(kB, kR1)
+
+                    pick = 0 if assignment == "A_to_first" else \
+                           1 if assignment == "A_to_second" else \
+                           (0 if eA1 + eB2 <= eA2 + eB1 else 1)
+
+                    if pick == 0:
+                        sA, RA, tA = sA1, RA1, tA1
+                        sB, RB, tB = sB2, RB2, tB2
+                    else:
+                        sA, RA, tA = sA2, RA2, tA2
+                        sB, RB, tB = sB1, RB1, tB1
+
+                    MA = np.hstack([sA * RA, tA[:, None]]).astype(np.float32)
+                    MB = np.hstack([sB * RB, tB[:, None]]).astype(np.float32)
+                    
                 self._MA, self._MB = MA, MB
                 
             else:
@@ -336,21 +393,32 @@ class PoseAlignTwoToOne(PreviewImage):
         # Store transformation data for canvas
         self._store_transform_data_for_canvas(debug)
 
-        # Apply transforms to batch (unchanged)
+        # Apply transforms to batch
         outA, outB, outC, outAll = [], [], [], []
         for i in range(N):
             A_np_i = torch_to_u8(poseA_img[i:i+1])
-            B_np_i = torch_to_u8(poseB_img[i:i+1])
-
+            
+            # Transform A
             A_w = cv2.warpAffine(A_np_i, MA, (w, h), flags=cv2.INTER_LINEAR,
                                  borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-            B_w = cv2.warpAffine(B_np_i, MB, (w, h), flags=cv2.INTER_LINEAR,
-                                 borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-
-            combined = np.where(A_w > 0, A_w, B_w)
-            combo_all = ref_np.copy()
-            m = A_w > 0; combo_all[m] = A_w[m]
-            m = B_w > 0; combo_all[m] = B_w[m]
+            
+            if poseB_img is not None:
+                # Transform B if provided
+                B_np_i = torch_to_u8(poseB_img[i:i+1])
+                B_w = cv2.warpAffine(B_np_i, MB, (w, h), flags=cv2.INTER_LINEAR,
+                                     borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+                
+                # Combine A and B
+                combined = np.where(A_w > 0, A_w, B_w)
+                combo_all = ref_np.copy()
+                m = A_w > 0; combo_all[m] = A_w[m]
+                m = B_w > 0; combo_all[m] = B_w[m]
+            else:
+                # Single pose mode - B is empty
+                B_w = np.zeros_like(A_w)  # Empty image for B
+                combined = A_w.copy()  # Combined is just A
+                combo_all = ref_np.copy()
+                m = A_w > 0; combo_all[m] = A_w[m]  # Overlay only A on reference
 
             outA.append(u8_to_torch(A_w))
             outB.append(u8_to_torch(B_w))
