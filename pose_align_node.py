@@ -193,7 +193,7 @@ class PoseAlignTwoToOne(PreviewImage):
             if debug:
                 print(f"[PoseAlign] Updated widget B: scale={scale_B:.3f}, angle={angle_deg_B:.1f}°, tx={tx_B:.1f}, ty={ty_B:.1f}")
 
-    def _store_transform_data_for_canvas(self, debug: bool = False):
+    def _store_transform_data_for_canvas(self, debug: bool = False, has_poseB: bool = True):
         """Store transformation data for canvas access via API"""
         node_id = str(id(self))  # Use object id as unique identifier
 
@@ -202,11 +202,20 @@ class PoseAlignTwoToOne(PreviewImage):
         print(f"[PoseAlign] Input dimensions being stored: {self._input_dimensions}")
         print(f"[PoseAlign] Input dimensions type: {type(self._input_dimensions)}")
         print(f"[PoseAlign] Offset corrections: {self._offset_corrections}")
+        print(f"[PoseAlign] Has poseB: {has_poseB}")
+
+        # Only store B transformation if poseB actually exists
+        matrices = {'A': self._MA}
+        if has_poseB:
+            matrices['B'] = self._MB
+        else:
+            matrices['B'] = None  # Explicitly mark as None for single pose mode
 
         data = {
-            'matrices': {'A': self._MA, 'B': self._MB},
+            'matrices': matrices,
             'offsetCorrections': self._offset_corrections,
-            'inputDimensions': self._input_dimensions  # This should contain the dimensions
+            'inputDimensions': self._input_dimensions,
+            'singlePoseMode': not has_poseB  # Flag for UI to know this is single pose mode
         }
 
         store_transform_data(node_id, data)
@@ -252,10 +261,11 @@ class PoseAlignTwoToOne(PreviewImage):
             }
         else:
             B_np = None
+            # In single pose mode, don't include B dimensions at all
             self._input_dimensions = {
                 'ref': (ref_np.shape[1], ref_np.shape[0]),  # (width, height)
-                'A': (A_np.shape[1], A_np.shape[0]),
-                'B': (0, 0)  # No B pose
+                'A': (A_np.shape[1], A_np.shape[0])
+                # No 'B' key - this should signal to UI that there's no poseB
             }
         
         # ENHANCED LOGGING: Show what dimensions we captured
@@ -424,7 +434,7 @@ class PoseAlignTwoToOne(PreviewImage):
                 MA, MB = self._MA, self._MB
 
         # Store transformation data for canvas
-        self._store_transform_data_for_canvas(debug)
+        self._store_transform_data_for_canvas(debug, has_poseB=(poseB_img is not None))
 
         # Apply transforms to batch
         outA, outB, outC, outAll = [], [], [], []
