@@ -5,7 +5,6 @@ export class TransformManager {
 	constructor(node) {
 		this.node = node;
 		this.lastProperties = {};
-		this.forceManualMode = false; // Force manual mode for live updates
 		this.transformCache = {
 			lastUpdate: 0,
 			matrices: { A: null, B: null },
@@ -13,20 +12,6 @@ export class TransformManager {
 			inputDimensions: null
 		};
 		this.propertyMonitorInterval = null;
-	}
-
-	// Set manual mode override
-	setManualModeOverride(enabled) {
-		console.log(`[TransformManager] Manual mode override: ${this.forceManualMode} → ${enabled}`);
-		this.forceManualMode = enabled;
-		
-		// CRITICAL: Also update the manual widget to match the override
-		this.setProperty('manual', enabled);
-	}
-
-	// Check if we should use manual mode
-	shouldUseManualMode() {
-		return this.forceManualMode || !this.transformCache.matrices.A;
 	}
 
 	// Normalize angle to 0-360 degrees range
@@ -138,11 +123,9 @@ export class TransformManager {
 		return this.transformCache.inputDimensions;
 	}
 
-	// CRITICAL FIX: Always use manual mode when override is active
+	// SIMPLIFIED: Always use manual transformations from widget values
 	getCurrentTransform(keyPrefix, refW, refH) {
-		const isUsingManualMode = this.shouldUseManualMode();
-		
-		console.log(`[TransformManager] getCurrentTransform(${keyPrefix}): manual=${isUsingManualMode}, hasCache=${!!this.transformCache.matrices[keyPrefix]}`);
+		console.log(`[TransformManager] getCurrentTransform(${keyPrefix}): MANUAL-ONLY mode`);
 		
 		// Get widget values
 		const tx = this.getProperty(`tx_${keyPrefix}`, 0);
@@ -150,68 +133,13 @@ export class TransformManager {
 		const scale = this.getProperty(`scale_${keyPrefix}`, 1);
 		const rotD = this.getProperty(`angle_deg_${keyPrefix}`, 0);
 		
-		// CRITICAL: When manual mode is active, ALWAYS use widget values
-		if (isUsingManualMode) {
-			console.log(`[TransformManager] Using MANUAL mode for ${keyPrefix}: tx=${tx}, ty=${ty}, scale=${scale}, angle=${rotD}`);
-			
-			// Apply offset corrections if available
-			let finalTx = tx;
-			let finalTy = ty;
-			const offset = this.transformCache.offsetCorrections[keyPrefix];
-			if (offset) {
-				finalTx += offset.x;
-				finalTy += offset.y;
-				console.log(`[TransformManager] Applied offset correction: +${offset.x}, +${offset.y}`);
-			}
-			
-			// Build the affine matrix for manual mode
-			const cx = refW / 2.0;
-			const cy = refH / 2.0;
-			const matrix = this.buildAffineMatrix(scale, rotD, finalTx, finalTy, cx, cy);
-
-			return { tx: finalTx, ty: finalTy, scale, rotD, matrix };
-		}
+		console.log(`[TransformManager] Using widget values for ${keyPrefix}: tx=${tx}, ty=${ty}, scale=${scale}, angle=${rotD}`);
 		
-		// Auto mode: use cached matrix data from Python
-		if (this.transformCache.matrices[keyPrefix]) {
-			const matrixArray = this.transformCache.matrices[keyPrefix];
-			console.log(`[TransformManager] Using AUTO mode for ${keyPrefix}:`, matrixArray);
-			
-			// Parse the matrix array from Python
-			let matrix;
-			if (Array.isArray(matrixArray) && matrixArray.length === 2) {
-				if (Array.isArray(matrixArray[0]) && matrixArray[0].length === 3) {
-					matrix = {
-						a: matrixArray[0][0], b: matrixArray[1][0], c: matrixArray[0][1],
-						d: matrixArray[1][1], e: matrixArray[0][2], f: matrixArray[1][2]
-					};
-				} else {
-					matrix = {
-						a: matrixArray[0], b: matrixArray[1], c: matrixArray[2],
-						d: matrixArray[3], e: matrixArray[4], f: matrixArray[5]
-					};
-				}
-			} else {
-				console.error(`[TransformManager] Invalid matrix format for ${keyPrefix}:`, matrixArray);
-				matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-			}
-			
-			// Decompose the matrix for display purposes
-			const cx = refW / 2.0;
-			const cy = refH / 2.0;
-			const autoScale = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b);
-			const autoRotD = Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
-			const autoTx = matrix.e;
-			const autoTy = matrix.f;
-			
-			return { tx: autoTx, ty: autoTy, scale: autoScale, rotD: autoRotD, matrix };
-		}
-		
-		// Fallback: no data available, use widget values
-		console.log(`[TransformManager] FALLBACK mode for ${keyPrefix}: using widget values`);
+		// Build the affine matrix
 		const cx = refW / 2.0;
 		const cy = refH / 2.0;
 		const matrix = this.buildAffineMatrix(scale, rotD, tx, ty, cx, cy);
+
 		return { tx, ty, scale, rotD, matrix };
 	}
 

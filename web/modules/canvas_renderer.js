@@ -270,6 +270,7 @@ export class CanvasRenderer {
 		const refSize = this.imageManager.getReferenceImageSize();
 		const canvasScale = coordSys.canvasScale;
 		const inputDims = this.transformManager.getInputDimensions();
+		
 		const transform = this.transformManager.getCurrentTransform(this.state.which, refSize.width, refSize.height);
 		
 		let dimInfo = `Ref: ${refSize.width}x${refSize.height}`;
@@ -310,6 +311,7 @@ export class CanvasRenderer {
 			// Enhanced debug logging with dimension info
 			const inputDims = this.transformManager.getInputDimensions();
 			const refSize = this.imageManager.getReferenceImageSize();
+			
 			const transformA = this.transformManager.getCurrentTransform('A', refSize.width, refSize.height);
 			const transformB = this.transformManager.getCurrentTransform('B', refSize.width, refSize.height);
 			

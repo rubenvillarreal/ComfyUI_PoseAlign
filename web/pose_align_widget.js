@@ -128,6 +128,9 @@ app.registerExtension({
 
 			// Add ONLY essential UI components (drastically reduced)
 			uiComponents.createAllComponents();
+			
+			// Manual-only mode - no widget sync needed
+			console.log("[PoseAlign Widget] Running in manual-only mode");
 
 			// Set up monitoring for property changes and transform updates
 			transformManager.setupPropertyMonitoring(renderer);

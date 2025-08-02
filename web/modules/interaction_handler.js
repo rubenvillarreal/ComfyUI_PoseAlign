@@ -13,23 +13,15 @@ export class InteractionHandler {
 		this.state = state;
 	}
 
-	// CRITICAL FIX: Force manual mode during interactions
+	// Track interaction state
 	startInteraction() {
 		this.isInteracting = true;
-		this.transformManager.setManualModeOverride(true);
-		console.log("[Interaction] Started - forcing manual mode");
+		console.log("[Interaction] Started");
 	}
 
 	endInteraction() {
 		this.isInteracting = false;
-		// Keep manual mode active for a short time after interaction ends
-		setTimeout(() => {
-			if (!this.isInteracting) {
-				// Only reset if no new interaction started
-				// User can manually toggle back if desired
-				console.log("[Interaction] Ended - interaction complete");
-			}
-		}, 1000);
+		console.log("[Interaction] Ended");
 	}
 
 	// Set up all event listeners
@@ -45,7 +37,7 @@ export class InteractionHandler {
 		
 		// Mouse down - start dragging
 		this.canvas.addEventListener("mousedown", (e) => {
-			this.startInteraction(); // CRITICAL: Force manual mode
+			this.startInteraction();
 			
 			this.state.dragging = true;
 			this.state.which = e.button === 2 ? "B" : "A"; // Right click = B, Left click = A
@@ -116,11 +108,6 @@ export class InteractionHandler {
 			this.transformManager.setProperty(`ty_${pose}`, currentTy + scaledDy);
 			
 			console.log(`[Interaction] Move ${pose}: tx=${(currentTx + scaledDx).toFixed(1)}, ty=${(currentTy + scaledDy).toFixed(1)}`);
-			console.log(`[Interaction] Manual mode active: ${this.transformManager.shouldUseManualMode()}`);
-			
-			// Check if manual widget was updated
-			const manualWidget = this.transformManager.node.widgets?.find(w => w.name === 'manual');
-			console.log(`[Interaction] Manual widget value: ${manualWidget?.value}`);
 			
 			// CRITICAL: Immediate redraw with forced manual mode
 			this.renderer.draw();
@@ -130,7 +117,7 @@ export class InteractionHandler {
 		this.canvas.addEventListener("wheel", (e) => {
 			e.preventDefault();
 			
-			this.startInteraction(); // Force manual mode for wheel events
+			this.startInteraction();
 			
 			const pose = this.state.which;
 			
