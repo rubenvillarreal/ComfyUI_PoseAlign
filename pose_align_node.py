@@ -98,7 +98,8 @@ class PoseAlignTwoToOne(PreviewImage):
             "optional": {
                 "poseB_img": ("IMAGE",),
                 "poseB_json": ("POSE_KEYPOINT",),
-                "debug": ("BOOLEAN", {"default": False})
+                "debug": ("BOOLEAN", {"default": False}),
+                "alignment_input": ("POSE_ALIGNMENT",)  # New optional input for alignment passthrough
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -106,8 +107,8 @@ class PoseAlignTwoToOne(PreviewImage):
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("aligned_poseA", "aligned_poseB", "combined_AB", "combine_all")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "IMAGE", "POSE_ALIGNMENT")
+    RETURN_NAMES = ("aligned_poseA", "aligned_poseB", "combined_AB", "combine_all", "alignment_output")
     FUNCTION = "align"
 
     # ────────────────── Helper Methods ────────────────────
@@ -238,6 +239,7 @@ class PoseAlignTwoToOne(PreviewImage):
               assignment="auto", manual=False, reset=False, debug=False,
               angle_deg_A=0.0, scale_A=1.0, tx_A=0, ty_A=0,
               angle_deg_B=0.0, scale_B=1.0, tx_B=0, ty_B=0,
+              alignment_input=None,
               prompt=None, extra_pnginfo=None):
 
         # Store Python object ID in node properties for JavaScript access
@@ -247,6 +249,54 @@ class PoseAlignTwoToOne(PreviewImage):
         
         print(f"[PoseAlign] PYTHON NODE ID: {python_node_id}")
         print(f"[PoseAlign] Stored in properties: {self.properties.get('python_node_id')}")
+        
+        # If alignment_input is provided and we're not in manual mode or resetting,
+        # extract the transformation values to use as overrides
+        if alignment_input is not None and not manual and not reset:
+            # Get reference dimensions for decomposition
+            ref_np = torch_to_u8(ref_pose_img[0:1])
+            h, w = ref_np.shape[:2]
+            cx = alignment_input.get('center_x', w / 2.0)
+            cy = alignment_input.get('center_y', h / 2.0)
+            
+            # Extract and decompose matrix A if available
+            ma = alignment_input.get('matrix_A')
+            if ma is not None:
+                matrix_a = np.array(ma, dtype=np.float32)
+                scale_A, angle_deg_A, tx_A, ty_A = decompose_affine_matrix(matrix_a, cx, cy)
+                # Convert to appropriate types for the function parameters
+                angle_deg_A = float(angle_deg_A)
+                scale_A = float(scale_A)
+                tx_A = int(round(tx_A))
+                ty_A = int(round(ty_A))
+                
+                if debug:
+                    print(f"[PoseAlign] Overriding A params from alignment_input: scale={scale_A}, angle={angle_deg_A}, tx={tx_A}, ty={ty_A}")
+            
+            # Extract and decompose matrix B if available
+            mb = alignment_input.get('matrix_B')
+            if mb is not None and poseB_img is not None:
+                matrix_b = np.array(mb, dtype=np.float32)
+                scale_B, angle_deg_B, tx_B, ty_B = decompose_affine_matrix(matrix_b, cx, cy)
+                # Convert to appropriate types for the function parameters
+                angle_deg_B = float(angle_deg_B)
+                scale_B = float(scale_B)
+                tx_B = int(round(tx_B))
+                ty_B = int(round(ty_B))
+                
+                if debug:
+                    print(f"[PoseAlign] Overriding B params from alignment_input: scale={scale_B}, angle={angle_deg_B}, tx={tx_B}, ty={ty_B}")
+            
+            # Also load the offset corrections if provided
+            if alignment_input.get('offset_corrections'):
+                self._offset_corrections = alignment_input.get('offset_corrections')
+            
+            # Update properties so JavaScript can read the values
+            self.properties.update({
+                'scale_A': scale_A, 'angle_deg_A': angle_deg_A, 'tx_A': tx_A, 'ty_A': ty_A,
+                'scale_B': scale_B, 'angle_deg_B': angle_deg_B, 'tx_B': tx_B, 'ty_B': ty_B
+            })
+        
 
         # SIMPLE: Capture original input dimensions before any processing
         ref_np = torch_to_u8(ref_pose_img[0:1])
@@ -293,7 +343,7 @@ class PoseAlignTwoToOne(PreviewImage):
         angle_deg_A = normalize_angle(angle_deg_A)
         angle_deg_B = normalize_angle(angle_deg_B)
 
-        # Rest of the alignment logic stays the same...
+        # Manual mode - always build from slider values (overrides any alignment_input)
         if manual:
             MA = _build_affine(scale_A, angle_deg_A, tx_A, ty_A, cx, cy).astype(np.float32)
             if poseB_img is not None:
@@ -308,9 +358,30 @@ class PoseAlignTwoToOne(PreviewImage):
             
             self._MA, self._MB = MA, MB
             
+            if debug:
+                print(f"[PoseAlign] Manual mode: Applied user adjustments")
+            
         else:
             # Automatic mode logic
-            need_fit = reset or self._MA is None or (self._MB is None and poseB_img is not None)
+            # Only calculate fit if:
+            # 1. Reset is requested
+            # 2. We have no cached matrices AND no alignment_input
+            # 3. We need matrix B but don't have it
+            need_fit = reset or (self._MA is None and alignment_input is None) or (self._MB is None and poseB_img is not None and alignment_input is None)
+            
+            # If we have alignment_input but no cached matrices, use alignment_input
+            if not need_fit and self._MA is None and alignment_input is not None:
+                # Convert lists back to numpy arrays if needed
+                ma = alignment_input.get('matrix_A')
+                mb = alignment_input.get('matrix_B')
+                self._MA = np.array(ma, dtype=np.float32) if ma is not None else None
+                self._MB = np.array(mb, dtype=np.float32) if mb is not None else None
+                self._offset_corrections = alignment_input.get('offset_corrections', {'A': {'x': 0, 'y': 0}, 'B': {'x': 0, 'y': 0}})
+                
+                # The widget values have already been overridden from alignment_input above
+                if debug:
+                    print(f"[PoseAlign] Auto mode: Using matrices from alignment_input")
+            
             if need_fit:
                 # Reference keypoints
                 ref_people_raw = kps_from_pose_json(ref_pose_json)
@@ -468,7 +539,25 @@ class PoseAlignTwoToOne(PreviewImage):
             outC.append(u8_to_torch(combined))
             outAll.append(u8_to_torch(combo_all))
 
-        result = {"result": (torch.cat(outA, 0), torch.cat(outB, 0), torch.cat(outC, 0), torch.cat(outAll, 0))}
+        # Create alignment output data
+        # Convert numpy arrays to lists for serialization
+        alignment_output = {
+            'matrix_A': self._MA.tolist() if self._MA is not None else None,
+            'matrix_B': self._MB.tolist() if self._MB is not None else None,
+            'offset_corrections': self._offset_corrections,
+            'center_x': cx,
+            'center_y': cy,
+            'output_size': self._out_size,
+            'has_poseB': poseB_img is not None
+        }
+        
+        result = {"result": (
+            torch.cat(outA, 0), 
+            torch.cat(outB, 0), 
+            torch.cat(outC, 0), 
+            torch.cat(outAll, 0),
+            alignment_output  # Add alignment as 5th output
+        )}
         
         if "ui" in ui_result:
             result["ui"] = ui_result["ui"]
